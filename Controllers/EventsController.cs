@@ -9,6 +9,10 @@ using Microsoft.AspNetCore.Mvc;
 using Supabase;
 using static Supabase.Postgrest.Constants;
 
+using Microsoft.AspNetCore.Mvc;
+using static Supabase.Postgrest.Constants;
+using EventManagementSystem.Models;
+
 namespace EventManagementSystem.Controllers
 {
     public class EventsController : Controller
@@ -262,6 +266,40 @@ public async Task<IActionResult> Create(Event model)
     }
 }
 
+[HttpGet]
+public async Task<IActionResult> GetNotifications(Guid id)
+{
+    if (!IsUserLoggedIn())
+        return Unauthorized();
+
+    try
+    {
+        var resp = await _supabase
+            .From<EventNotification>()
+            .Where(n => n.EventId == id)
+            .Order(n => n.CreatedAt, Ordering.Descending)
+            .Get();
+
+        // ✅ Convert to plain objects (serializable)
+        var result = resp.Models.Select(n => new
+        {
+            id = n.Id,
+            eventId = n.EventId,
+            createdBy = n.CreatedBy,
+            title = n.Title,
+            message = n.Message,
+            createdAt = n.CreatedAt
+        });
+
+        return Ok(result);
+    }
+    catch (Exception ex)
+    {
+        return StatusCode(500, new { error = ex.Message, detail = ex.InnerException?.Message });
+    }
+}
+
+
         [HttpGet]
        public async Task<IActionResult> Details(Guid id)
 {
@@ -319,6 +357,147 @@ public async Task<IActionResult> Create(Event model)
 
     return View(eventItem);
 }
+
+
+[HttpGet]
+public async Task<IActionResult> CreateNotification(Guid eventId)
+{
+    if (!IsUserLoggedIn())
+        return RedirectToAction("Login", "Auth");
+
+    var userId = GetCurrentUserId();
+    if (userId == null)
+        return RedirectToAction("Login", "Auth");
+
+    var role = GetCurrentUserRole();
+    if (role != "Organizer" && role != "Admin")
+        return Forbid();
+
+    // Load event (for title / validation)
+    var evResp = await _supabase
+        .From<Event>()
+        .Where(e => e.Id == eventId)
+        .Limit(1)
+        .Get();
+
+    var ev = evResp.Models.FirstOrDefault();
+    if (ev == null) return NotFound();
+
+    // Organizer can only post to own event (Admin can post to any)
+    if (role != "Admin" && ev.OrganizerId != userId.Value)
+        return Forbid();
+
+    ViewBag.EventId = eventId;
+    ViewBag.EventName = ev.Name;
+    ViewBag.Username = HttpContext.Session.GetString("Username");
+
+    return View();
+}
+
+
+
+[HttpPost]
+public async Task<IActionResult> CreateNotification(Guid eventId, string title, string message)
+{
+    if (!IsUserLoggedIn())
+        return RedirectToAction("Login", "Auth");
+
+    var userId = GetCurrentUserId();
+    if (userId == null)
+        return RedirectToAction("Login", "Auth");
+
+    var role = GetCurrentUserRole();
+    if (role != "Organizer" && role != "Admin")
+        return Forbid();
+
+    // basic validation
+    title = (title ?? "").Trim();
+    message = (message ?? "").Trim();
+
+    if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(message))
+    {
+        ViewBag.Error = "Başlık ve mesaj zorunludur.";
+        ViewBag.EventId = eventId;
+        return View();
+    }
+
+    // 1) Load event & auth check
+    var evResp = await _supabase
+        .From<Event>()
+        .Where(e => e.Id == eventId)
+        .Limit(1)
+        .Get();
+
+    var ev = evResp.Models.FirstOrDefault();
+    if (ev == null) return NotFound();
+
+    if (role != "Admin" && ev.OrganizerId != userId.Value)
+        return Forbid();
+
+    try
+    {
+        // 2) Insert notification
+        var notif = new EventNotification
+        {
+            EventId = eventId,
+            CreatedBy = userId.Value,
+            Title = title,
+            Message = message,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        var notifResp = await _supabase
+            .From<EventNotification>()
+            .Insert(notif);
+
+        var created = notifResp.Models.FirstOrDefault();
+        if (created == null)
+        {
+            TempData["Error"] = "Bildirim oluşturulamadı.";
+            return RedirectToAction("Details", new { id = eventId });
+        }
+
+        // 3) Load participants (recipients)
+        var partResp = await _supabase
+            .From<Participant>()
+            .Where(p => p.EventId == eventId)
+            .Get();
+
+        var recipientIds = partResp.Models
+            .Select(p => p.UserId)
+            .Where(uid => uid != Guid.Empty)
+            .Distinct()
+            .Where(uid => uid != userId.Value) // optional: don't notify yourself
+            .ToList();
+
+        // 4) Bulk insert recipients
+        if (recipientIds.Count > 0)
+        {
+            var recRows = recipientIds.Select(uid => new NotificationRecipient
+            {
+                NotificationId = created.Id,
+                UserId = uid,
+                IsRead = false,
+                ReadAt = null,
+                CreatedAt = DateTime.UtcNow
+            }).ToList();
+
+            await _supabase
+                .From<NotificationRecipient>()
+                .Insert(recRows);
+        }
+
+        TempData["Success"] = "Bildirim yayınlandı.";
+        return RedirectToAction("Details", new { id = eventId });
+    }
+    catch (Exception ex)
+    {
+        TempData["Error"] = $"Bildirim hatası: {ex.Message}";
+        return RedirectToAction("Details", new { id = eventId });
+    }
+}
+
+
 
 [HttpGet]
 public async Task<IActionResult> GetTasks(Guid id)

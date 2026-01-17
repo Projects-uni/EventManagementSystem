@@ -843,7 +843,6 @@
         let tasksCache = [];
 
         function switchTab(tabName, btn) {
-
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
@@ -852,8 +851,6 @@
 
             if (tabName === 'tasks') loadTasks();
             if (tabName === 'participants') loadParticipants();
-            if (tabName === 'notifications') loadNotifications();
-
         }
 
         function openEditTaskModal(taskId) {
@@ -870,73 +867,6 @@
         function closeEditTaskModal() {
             document.getElementById('editTaskModal').classList.remove('active');
         }
-
-async function loadNotifications() {
-    const container = document.getElementById('notifications-container');
-    container.innerHTML = '<div class="empty-state"><h4>Bildirimler yükleniyor...</h4></div>';
-
-    try {
-        const resp = await fetch(`/Events/GetNotifications/${eventId}`);
-
-        // Read raw response first (works even if server returns HTML/text)
-        const text = await resp.text();
-
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch {
-            // Not JSON (likely ASP.NET error page or exception text)
-            container.innerHTML = `<div class="empty-state"><h4>Hata</h4><p>${escapeHtml(text.slice(0, 250))}</p></div>`;
-            return;
-        }
-
-        // If server returned JSON error
-        if (!resp.ok) {
-            container.innerHTML = `<div class="empty-state"><h4>Hata</h4><p>${escapeHtml(data?.error || 'Bildirimler yüklenemedi')}</p></div>`;
-            return;
-        }
-
-        // Expecting an array
-        if (!Array.isArray(data) || data.length === 0) {
-            container.innerHTML = '<div class="empty-state"><h4>Henüz bildirim yok</h4><p>İlk bildirimi ekleyin.</p></div>';
-            return;
-        }
-
-        container.innerHTML = data.map(n => {
-            const title = n.title ?? n.Title ?? '';
-            const message = n.message ?? n.Message ?? '';
-            const createdAt = n.created_at ?? n.createdAt ?? n.CreatedAt ?? null;
-
-            const dateText = createdAt
-                ? new Date(createdAt).toLocaleString('tr-TR')
-                : '';
-
-            return `
-                <div class="notification-card">
-                    <div class="notification-header">
-                        <div class="notification-title">${escapeHtml(title)}</div>
-                        <span class="notification-meta">${escapeHtml(dateText)}</span>
-                    </div>
-                    <div class="notification-message">${escapeHtml(message)}</div>
-                </div>
-            `;
-        }).join('');
-    } catch (err) {
-        console.error('Bildirimler yüklenirken hata:', err);
-        container.innerHTML = '<div class="empty-state"><h4>Bildirimler yüklenemedi</h4><p>Beklenmeyen bir hata oluştu.</p></div>';
-    }
-}
-
-function escapeHtml(s) {
-    return String(s ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
-}
-
-   
 
         async function submitEditTask(e) {
             e.preventDefault();

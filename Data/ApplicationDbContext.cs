@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using EventManagementSystem.Models;
 
+
 namespace EventManagementSystem.Data
 {
     public class ApplicationDbContext : DbContext
@@ -20,6 +21,10 @@ namespace EventManagementSystem.Data
 
         // If you have these models, uncomment:
         public DbSet<Participant> Participants { get; set; }
+
+        public DbSet<EventNotification> EventNotifications { get; set; }
+        public DbSet<NotificationRecipient> NotificationRecipients { get; set; }
+
         
     }
 }
